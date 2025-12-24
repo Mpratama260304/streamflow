@@ -1,6 +1,7 @@
 require('dotenv').config();
 require('./services/logger.js');
 const express = require('express');
+const compression = require('compression');
 const path = require('path');
 const engine = require('ejs-mate');
 const os = require('os');
@@ -41,8 +42,18 @@ process.on('uncaughtException', (error) => {
 const app = express();
 app.set("trust proxy", 1);
 const port = process.env.PORT || 7575;
+
+// Enable compression for all responses
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
+
 const tokens = new csrf();
-ensureDirectories();
 ensureDirectories();
 app.locals.helpers = {
   getUsername: function (req) {
@@ -107,20 +118,35 @@ app.locals.helpers = {
     return `${hours}:${minutes}:${secs}`;
   }
 };
+// Security headers middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 app.use(session({
   store: new SQLiteStore({
     db: 'sessions.db',
     dir: './db/',
-    table: 'sessions'
+    table: 'sessions',
+    concurrentDB: true
   }),
-  secret: process.env.SESSION_SECRET,
+  secret: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
   rolling: true,
+  name: 'streamflow.sid',
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   }
 }));
 app.use(async (req, res, next) => {
@@ -155,7 +181,11 @@ app.use(function (req, res, next) {
 app.engine('ejs', engine);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
+  etag: true,
+  lastModified: true
+}));
 
 app.get('/sw.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
@@ -2354,6 +2384,33 @@ app.get('/api/server-time', (req, res) => {
     formattedTime: formattedTime
   });
 });
+
+// Health check endpoint for monitoring and container orchestration
+app.get('/api/health', async (req, res) => {
+  try {
+    const activeStreams = streamingService.getActiveStreams();
+    const systemStats = await systemMonitor.getSystemStats();
+    
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      version: '2.1.0',
+      uptime: process.uptime(),
+      activeStreams: activeStreams.length,
+      system: {
+        cpu: systemStats.cpu,
+        memory: systemStats.memory
+      }
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 const server = app.listen(port, '0.0.0.0', async () => {
   try {
     await initializeDatabase();

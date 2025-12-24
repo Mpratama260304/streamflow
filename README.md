@@ -227,13 +227,14 @@ Buat file `.env` di root project:
 ```env
 PORT=7575
 SESSION_SECRET=your_random_secret_here
-NODE_ENV=development
+NODE_ENV=production
+TZ=UTC
 ```
 
 ### 2. Build dan Jalankan
 
 ```bash
-docker-compose up --build
+docker-compose up --build -d
 ```
 
 Akses aplikasi: [http://localhost:7575](http://localhost:7575)
@@ -250,6 +251,54 @@ Data akan tersimpan secara otomatis di:
 ```bash
 docker-compose exec app node reset-password.js
 ```
+
+## 🚀 Railway.com Deployment
+
+StreamFlow adalah solusi streaming yang dioptimalkan untuk deployment di Railway.com.
+
+### Quick Deploy
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/bangtutorial/streamflow)
+
+### Manual Deployment
+
+1. **Fork Repository** - Fork repo ini ke akun GitHub kamu
+
+2. **Buat Project Railway**
+   - Login ke [Railway.com](https://railway.app)
+   - Klik "New Project" → "Deploy from GitHub Repo"
+   - Pilih repository yang sudah di-fork
+
+3. **Set Environment Variables**
+   ```
+   PORT=7575
+   SESSION_SECRET=your-super-secret-key-here
+   NODE_ENV=production
+   TZ=UTC
+   ```
+
+4. **Configure Storage** (Optional)
+   - Railway menyediakan ephemeral storage
+   - Untuk persistent storage, gunakan Railway Volume atau external storage
+
+5. **Generate Domain**
+   - Di tab "Settings", klik "Generate Domain"
+   - Akses aplikasi melalui URL yang diberikan
+
+### Railway Configuration
+
+File `railway.json` sudah disertakan untuk konfigurasi optimal:
+- Health check endpoint: `/api/server-time`
+- Auto-restart on failure
+- Optimized Docker build
+
+### Rekomendasi Resource Railway
+
+| Plan | RAM | CPU | Cocok Untuk |
+|------|-----|-----|-------------|
+| Hobby | 512MB | Shared | 1-2 stream |
+| Pro | 2GB+ | Dedicated | 3-5 stream |
+| Team | 4GB+ | Dedicated | 5+ stream |
 
 ## 🔫 Troubleshooting
 

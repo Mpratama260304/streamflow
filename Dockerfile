@@ -1,26 +1,60 @@
-# Gunakan image Node.js versi 18 (atau 16+)
-FROM node:18-slim
+# ===========================================
+# StreamFlow v2.1 - Optimized for Railway.com
+# Multi-stage build for smaller image size
+# ===========================================
 
-# Install ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+# Stage 1: Build dependencies
+FROM node:20-slim AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package.json dan package-lock.json
+# Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+# Install all dependencies (including dev)
+RUN npm ci --only=production && \
+    npm cache clean --force
 
-# Copy seluruh source code
-COPY . .
+# Stage 2: Production image
+FROM node:20-slim AS production
 
-# Buat folder yang dibutuhkan (jika belum ada)
-RUN mkdir -p db logs public/uploads/videos public/uploads/thumbnails
+# Set environment variables
+ENV NODE_ENV=production \
+    PORT=7575 \
+    TZ=UTC
 
-# Expose port (default 7575, bisa diubah via .env)
+# Install ffmpeg and clean up in a single layer
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security
+RUN groupadd -r streamflow && \
+    useradd -r -g streamflow -d /app -s /sbin/nologin streamflow
+
+WORKDIR /app
+
+# Copy dependencies from builder stage
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy application source code
+COPY --chown=streamflow:streamflow . .
+
+# Create required directories with proper permissions
+RUN mkdir -p db logs temp public/uploads/videos public/uploads/thumbnails public/uploads/avatars && \
+    chown -R streamflow:streamflow /app
+
+# Switch to non-root user
+USER streamflow
+
+# Expose the application port
 EXPOSE 7575
 
-# Jalankan aplikasi
-CMD ["npm", "start"] 
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:7575/api/server-time', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+# Start the application
+CMD ["node", "app.js"] 
